@@ -1,92 +1,50 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
 #include <sys/wait.h>
+#include <string.h>
 
-#define MAX_INPUT_SIZE 1024
-
-char *read_line() {
-    char *line = NULL;
-    size_t bufsize = 0;
-    getline(&line, &bufsize, stdin);
-    return line;
-}
-
-char **parse_line(char *line) {
-    int bufsize = 64, position = 0;
-    char **tokens = (char **)malloc(bufsize * sizeof(char *));
-    char *token;
-
-    if (!tokens) {
-        fprintf(stderr, "Allocation error\n");
-        exit(EXIT_FAILURE);
-    }
-
-    token = strtok(line, " \t\r\n\a");
-    while (token != NULL) {
-        tokens[position] = token;
-        position++;
-
-        if (position >= bufsize) {
-            bufsize += 64;
-            tokens = (char **)realloc(tokens, bufsize * sizeof(char *));
-            if (!tokens) {
-                fprintf(stderr, "Allocation error\n");
-                exit(EXIT_FAILURE);
-            }
-        }
-
-        token = strtok(NULL, " \t\r\n\a");
-    }
-    tokens[position] = NULL;
-    return tokens;
-}
-
-void execute_command(char **args) {
-    pid_t pid, wpid;
-    int status;
-
-    pid = fork();
-    if (pid == 0) {
-        // Child process
-        if (execvp(args[0], args) == -1) {
-            perror("shell");
-        }
-        exit(EXIT_FAILURE);
-    } else if (pid < 0) {
-        perror("shell");
-    } else {
-        // Parent process
-        do {
-            wpid = waitpid(pid, &status, WUNTRACED);
-        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
-    }
-}
+#define MAX_COMMAND_LENGTH 100
+#define MAX_ARGUMENTS 10
 
 int main() {
-    char *line;
-    char **args;
+    char command[MAX_COMMAND_LENGTH];
+    char *arguments[MAX_ARGUMENTS];
+    int status;
 
     while (1) {
-        printf("shell> ");
-        line = read_line();
-        args = parse_line(line);
+        printf("$ ");
+        fgets(command, MAX_COMMAND_LENGTH, stdin);
 
-        if (args[0] == NULL) {
-            continue; // Empty command, read the next line
+        // Remove trailing newline character
+        command[strcspn(command, "\n")] = '\0';
+
+        // Tokenize the command into arguments
+        char *token = strtok(command, " ");
+        int i = 0;
+        while (token != NULL && i < MAX_ARGUMENTS - 1) {
+            arguments[i] = token;
+            token = strtok(NULL, " ");
+            i++;
         }
+        arguments[i] = NULL;
 
-        if (strcmp(args[0], "exit") == 0) {
-            free(line);
-            free(args);
-            exit(EXIT_SUCCESS);
+        // Fork a child process to execute the command
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            perror("Fork failed");
+            exit(EXIT_FAILURE);
+        } else if (pid == 0) {
+            // Child process
+            execvp(arguments[0], arguments);
+            perror("Exec failed");
+            exit(EXIT_FAILURE);
+        } else {
+            // Parent process
+            waitpid(pid, &status, 0);
         }
-
-        execute_command(args);
-
-        free(line);
-        free(args);
     }
 
     return 0;
